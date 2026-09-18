@@ -43,6 +43,15 @@ On first run your existing history counts as new, so the icon shows up once and 
 panel to clear it. With `alwaysShow` off and nothing new, open it with
 `omarchy-shell shell toggle cgranier.crashdesk '{}'`.
 
+## Uninstall
+
+```bash
+omarchy plugin remove cgranier.crashdesk
+rm -rf ~/.local/state/omarchy-crashdesk   # optional: the "seen" marker
+```
+
+Crash Desk only reads systemd-coredump's history; removing it leaves your core dumps and Omarchy's crash toasts untouched.
+
 ## Settings
 
 `omarchy bar set cgranier.crashdesk <key> <value> [--json]`
