@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "cgranier.crashdesk",
+  "name": "Crash Desk",
+  "version": "0.1.0",
+  "author": "Carlos Granier",
+  "license": "MIT",
+  "description": "A history of what crashed on this machine, grouped by program, with one-key AI diagnosis. The crash toast tells you once; Crash Desk remembers.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Crash Desk",
+    "description": "Appears when something has crashed since you last looked. The panel groups crash loops by program and hands any of them to your default coding agent.",
+    "category": "System",
+    "aliases": ["crash", "crashes", "coredump"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "days": 14,
+      "refreshIntervalSec": 60,
+      "alwaysShow": false,
+      "allUsers": false
+    },
+    "schema": [
+      { "key": "days", "type": "integer", "label": "History (days)", "min": 1, "max": 90, "step": 1, "defaultValue": 14 },
+      { "key": "refreshIntervalSec", "type": "integer", "label": "Refresh interval (seconds)", "min": 15, "max": 3600, "step": 15, "defaultValue": 60 },
+      { "key": "alwaysShow", "type": "boolean", "label": "Always show", "defaultValue": false, "description": "Keep the bar icon visible even when there is nothing new. Off, it only appears after a crash." },
+      { "key": "allUsers", "type": "boolean", "label": "Include other users", "defaultValue": false, "description": "Also list crashes of system daemons and other users, when you are allowed to read them." }
+    ]
+  }
+}
