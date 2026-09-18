@@ -2,6 +2,8 @@
 
 A history of what crashed on this machine, grouped by program, with a one-key handoff to your coding agent.
 
+![Crash Desk panel](docs/panel.png)
+
 Omarchy already tells you when something crashes — once, in a toast that is gone if you weren't looking. Crash Desk
 is the part that remembers: it reads systemd-coredump's history, folds crash loops into one row per program, and
 runs the same `omarchy-agent-crash` diagnosis the toast offers, whenever you get around to it.
