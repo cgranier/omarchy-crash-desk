@@ -32,7 +32,7 @@ runs the same `omarchy-agent-crash` diagnosis the toast offers, whenever you get
 ## Install
 
 ```bash
-omarchy plugin add <this-repo-url> --enable
+omarchy plugin add https://github.com/cgranier/omarchy-crash-desk.git --enable
 ```
 
 Requires `systemd-coredump` (`coredumpctl`) and `wl-copy`. Diagnosis needs a default agent (`omarchy-default-agent`).
