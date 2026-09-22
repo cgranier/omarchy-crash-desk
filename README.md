@@ -12,9 +12,14 @@ runs the same `omarchy-agent-crash` diagnosis the toast offers, whenever you get
 
 - Bar icon appears only when something has crashed since you last looked (count in the bar's urgent color).
   Nothing new, nothing in your bar.
-- Panel lists each program: how many times, which signals, how long ago, and whether a core file was saved.
+- Panel lists each program: how many times, which signals, how long ago, whether a core file was saved, and **where it
+  died** (the first meaningful stack frame, read from the journal, so it works even after the core file is gone).
+- Open a program (`l`, or click) to see every crash on its own line and diagnose a specific one.
+- `t` cycles the window: today, 7 days, 30 days, all time.
+- `m` mutes a noisy program: it drops out of the count and the bar badge and waits in a footer until you unmute it.
 - `enter` diagnoses with your default agent, starting from the newest crash that still has a core — without a core
-  there is no backtrace to read.
+  there is no backtrace to read. `a` offers any other installed agent (Claude Code, Codex, Grok, Gemini, OpenCode,
+  Copilot, Cursor, Crush, Muse, Hermes, Pi, Oh My Pi) with the same brief.
 - `i` opens `coredumpctl info` for that crash; `c` copies a plain-text report ready to paste into an issue.
 - Only your own crashes by default; system daemons are a sysadmin's problem.
 
@@ -26,7 +31,11 @@ runs the same `omarchy-agent-crash` diagnosis the toast offers, whenever you get
 | Bar | right click | mark seen without opening |
 | Bar | middle click | refresh |
 | Panel | `j` / `k` / arrows | move cursor |
-| Panel | `enter` / click | diagnose with your default agent |
+| Panel | `l` / `h`, `→` / `←`, space, click | open or close a program's crash list |
+| Panel | `enter` / double-click | diagnose with your default agent (a crash row diagnoses that crash) |
+| Panel | `a` | pick another installed agent, then `enter` |
+| Panel | `m` | mute or unmute the program |
+| Panel | `t` | today → 7 days → 30 days → all time |
 | Panel | `i` | `coredumpctl info` in a terminal |
 | Panel | `c` | copy report |
 | Panel | `r` | refresh |
@@ -37,7 +46,7 @@ runs the same `omarchy-agent-crash` diagnosis the toast offers, whenever you get
 omarchy plugin add https://github.com/cgranier/omarchy-crash-desk.git --enable
 ```
 
-Requires `systemd-coredump` (`coredumpctl`) and `wl-copy`. Diagnosis needs a default agent (`omarchy-default-agent`).
+Requires `systemd-coredump` (`coredumpctl`) and `wl-copy`; `c++filt` (binutils) makes C++ frame names readable. Diagnosis needs a default agent (`omarchy-default-agent`).
 
 On first run your existing history counts as new, so the icon shows up once and you can find it; open and close the
 panel to clear it. With `alwaysShow` off and nothing new, open it with
@@ -63,7 +72,7 @@ Crash Desk only reads systemd-coredump's history; removing it leaves your core d
 | `alwaysShow` | `false` | Keep the icon in the bar even with nothing new. |
 | `allUsers` | `false` | Include crashes from other users and system daemons, when readable. |
 
-The "seen" marker lives in `~/.local/state/omarchy-crashdesk/seen.json`.
+The "seen" marker, the muted list and the chosen window live in `~/.local/state/omarchy-crashdesk/seen.json`.
 
 ## IPC
 

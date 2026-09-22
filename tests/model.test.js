@@ -69,4 +69,67 @@ test("seen state round-trips", () => {
   assert.strictEqual(M.parseSeen('{"seenMs":-5}'), 0)
 })
 
+const groups = M.groupByProgram(crashes, 0)
+
+test("state file: v1 seen.json still reads, v2 round-trips, junk is ignored", () => {
+  assert.deepStrictEqual(M.parseState('{"version":1,"seenMs":5}'), { seenMs: 5, muted: [], rangeDays: 0 })
+  const state = { seenMs: 9, muted: ["/usr/bin/mediad", "/usr/bin/mediad", ""], rangeDays: 7 }
+  assert.deepStrictEqual(M.parseState(M.serializeState(state)), { seenMs: 9, muted: ["/usr/bin/mediad"], rangeDays: 7 })
+  assert.deepStrictEqual(M.parseState('{"rangeDays": 12, "muted": "x"}').rangeDays, 0)
+  assert.deepStrictEqual(M.parseState('{"rangeDays": -1}').rangeDays, -1)
+  assert.deepStrictEqual(M.parseState("nope"), { seenMs: 0, muted: [], rangeDays: 0 })
+})
+
+test("ranges cycle today → 7 → 30 → all → today, and a setting outside the cycle starts at today", () => {
+  assert.deepStrictEqual([1, 7, 30, -1, 14].map(M.nextRange), [7, 30, -1, 1, 1])
+  assert.deepStrictEqual([1, 7, 30, -1, 0].map(M.rangeLabel), ["today", "7 days", "30 days", "all time", "all time"])
+  assert.strictEqual(M.summaryText(groups, crashes, 1, 0), "2 programs · 4 crashes today")
+  assert.strictEqual(M.summaryText(groups, crashes, -1, 1), "2 programs · 4 crashes on record · 1 muted")
+  assert.strictEqual(M.summaryText([], [], 30, 0), "No crashes in 30 days")
+})
+
+test("muting hides a program from the count but keeps it for the footer", () => {
+  const split = M.splitMuted(groups, ["/usr/bin/mediad"])
+  assert.deepStrictEqual([split.shown.map((g) => g.name), split.hidden.map((g) => g.name)], [["vault"], ["mediad"]])
+  assert.deepStrictEqual(M.splitMuted(groups, []).hidden, [])
+})
+
+test("topFrame skips the abort plumbing and survives a missing trace", () => {
+  const info = [
+    "       Message: Process 262681 (cam) of user 1000 dumped core.",
+    "                Stack trace of thread 262681:",
+    "                #0  0x000076746409a17c n/a (libc.so.6 + 0x9a17c)",
+    "                #1  0x000076746403e5d0 raise (libc.so.6 + 0x3e5d0)",
+    "                #2  0x0000767464025685 abort (libc.so.6 + 0x25685)",
+    "                #3  0x000076746449d5bd _ZSt21__glibcxx_assert_failPKciS0_S0_ (libstdc++.so.6 + 0x9d5bd)",
+    "                Stack trace of thread 262682:",
+    "                #0  0x00007674640a0952 poll_me (libc.so.6 + 0xa0952)"
+  ].join("\n")
+  assert.strictEqual(M.topFrame(info), "in _ZSt21__glibcxx_assert_failPKciS0_S0_ (libstdc++.so.6)")
+  const onlyPlumbing = "Stack trace of thread 1:\n #0 0x1 n/a (libfoo.so + 0x1)\n #1 0x2 raise (libc.so.6 + 0x2)\n"
+  assert.strictEqual(M.topFrame(onlyPlumbing), "in libfoo.so")
+  assert.strictEqual(M.topFrame("Message: no trace here"), "")
+  assert.strictEqual(M.topFrame(""), "")
+})
+
+test("rows: programs fold and open, crashes sit under their program, muted ones come last", () => {
+  const rows = M.buildRows(groups, [], [])
+  assert.deepStrictEqual(rows.map((r) => r.type), ["group", "group"])
+  const open = M.buildRows(groups, [], ["/usr/bin/mediad"])
+  assert.deepStrictEqual(open.map((r) => r.type + ":" + (r.cursorIndex)), ["group:0", "crash:1", "crash:2", "crash:3", "group:4"])
+  assert.strictEqual(open[1].crash.pid, 202)
+  const withMuted = M.buildRows([groups[1]], [groups[0]], ["/usr/bin/mediad"])
+  assert.deepStrictEqual(withMuted.map((r) => r.type), ["group", "header", "group"])
+  assert.strictEqual(withMuted[1].text, "MUTED · 1")
+  assert.strictEqual(withMuted[2].muted, true)
+  assert.strictEqual(M.cursorRows(withMuted).length, 2)
+  assert.strictEqual(M.crashMeta(crashes[0], "in x (y)", 2000120000 + 5000), "just now · SIGSEGV · PID 202 · no core · in x (y)")
+})
+
+test("agents: names for Omarchy's known ids", () => {
+  assert.strictEqual(M.agentName("cursor-agent"), "Cursor")
+  assert.strictEqual(M.agentName("whatever"), "whatever")
+  assert.ok(M.reportText(groups[0], 0, "in f (g)").indexOf("Where:    in f (g)") !== -1)
+})
+
 console.log("\n" + passed + " tests passed")
