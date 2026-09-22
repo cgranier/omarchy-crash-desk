@@ -52,7 +52,7 @@ Item {
     // user. coredumpctl exits 1 with "No coredumps found" when the window is
     // empty, which is an answer, not a failure. "All time" passes no --since.
     var since = windowDays() > 0 ? "--since=-" + windowDays() + "days" : ""
-    listProcess.command = ["sh", "-c", 'id -u; coredumpctl list --json=short --no-pager $1 2>/dev/null; exit 0', "sh", since]
+    listProcess.command = ["timeout", "15", "sh", "-c", 'id -u; coredumpctl list --json=short --no-pager $1 2>/dev/null; exit 0', "sh", since]
     listProcess.running = true
     if (!agentProcess.running) agentProcess.running = true
   }
@@ -237,7 +237,7 @@ Item {
   Process {
     id: agentProcess
     running: false
-    command: ["sh", "-c", 'omarchy-default-agent 2>/dev/null; echo; for a in "$@"; do command -v "$a" >/dev/null 2>&1 && echo "$a"; done; exit 0', "sh",
+    command: ["timeout", "10", "sh", "-c", 'omarchy-default-agent 2>/dev/null; echo; for a in "$@"; do command -v "$a" >/dev/null 2>&1 && echo "$a"; done; exit 0', "sh",
       "claude", "codex", "grok", "gemini", "opencode", "copilot", "cursor-agent", "crush", "muse", "hermes", "pi", "omp"]
     stdout: StdioCollector { id: agentStdout; waitForEnd: true }
     onExited: function(exitCode) {
