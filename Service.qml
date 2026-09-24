@@ -144,19 +144,18 @@ Item {
   }
 
   // ---- actions --------------------------------------------------------------
-  // Omarchy's own crash-to-agent command: the same thing its crash toast
-  // runs, so the diagnosis method stays in one place (the diagnose-crash skill).
+  // Only the PID goes to the agent: names and paths in a crash record are
+  // chosen by whatever crashed, so the agent reads the record itself as data.
+  // The method stays in one place, Omarchy's diagnose-crash skill.
   function diagnose(group, crash) {
-    if (!group) return
-    var target = crash || Model.diagnosisTarget(group)
-    Quickshell.execDetached(["omarchy-agent-crash", String(target.pid), group.name, group.exe, target.signal])
+    diagnoseWith("default", group, crash)
   }
 
   // The same brief, handed to an agent you name instead of the default.
   function diagnoseWith(agent, group, crash) {
     if (!group || !agent) return
     var target = crash || Model.diagnosisTarget(group)
-    Quickshell.execDetached(["bash", agentScript, agent, String(target.pid), group.name, group.exe, target.signal])
+    Quickshell.execDetached(["bash", agentScript, agent, String(target.pid)])
   }
 
   function showInfo(group, crash) {

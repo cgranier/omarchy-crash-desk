@@ -6,7 +6,7 @@ A history of what crashed on this machine, grouped by program, with a one-key ha
 
 Omarchy already tells you when something crashes — once, in a toast that is gone if you weren't looking. Crash Desk
 is the part that remembers: it reads systemd-coredump's history, folds crash loops into one row per program, and
-runs the same `omarchy-agent-crash` diagnosis the toast offers, whenever you get around to it.
+hands any of them to your coding agent with the diagnose-crash skill the toast uses, whenever you get around to it.
 
 ## Features
 
@@ -19,7 +19,9 @@ runs the same `omarchy-agent-crash` diagnosis the toast offers, whenever you get
 - `m` mutes a noisy program: it drops out of the count and the bar badge and waits in a footer until you unmute it.
 - `enter` diagnoses with your default agent, starting from the newest crash that still has a core — without a core
   there is no backtrace to read. `a` offers any other installed agent (Claude Code, Codex, Grok, Gemini, OpenCode,
-  Copilot, Cursor, Crush, Muse, Hermes, Pi, Oh My Pi) with the same brief.
+  Copilot, Cursor, Crush, Muse, Hermes, Pi, Oh My Pi) with the same brief. The agent gets only the PID and the
+  `coredumpctl info` command, never the names or paths from the crash record: those are chosen by whatever crashed, so
+  the brief tells the agent to read the record itself and treat it as untrusted data.
 - `i` opens `coredumpctl info` for that crash; `c` copies a plain-text report ready to paste into an issue.
 - Only your own crashes by default; system daemons are a sysadmin's problem.
 
