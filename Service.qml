@@ -169,7 +169,9 @@ Item {
   function diagnoseWith(agent, group, crash) {
     if (!group || !agent) return
     var target = crash || Model.diagnosisTarget(group)
-    Quickshell.execDetached(["bash", agentScript, agent, String(target.pid)])
+    var command = ["bash", agentScript, agent, String(target.pid)]
+    if (setting("autoApprove", false) === true) command.push("--auto-approve")
+    Quickshell.execDetached(command)
   }
 
   function showInfo(group, crash) {

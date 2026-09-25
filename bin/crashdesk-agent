@@ -1,25 +1,38 @@
 #!/bin/bash
 # Diagnose a crash with the default agent or one you name.
 #
-# Usage: crashdesk-agent <agent|default> <pid>
+# Usage: crashdesk-agent <agent|default> <pid> [--auto-approve]
 #
 # Only the PID reaches the prompt. Everything else systemd-coredump records
 # (process and binary names, command line, environment, backtrace) comes from
 # the crashed program and whoever could start it, so the agent is told how to
 # read the record itself and to treat it as data, never as instructions.
 #
-# `default` goes through omarchy-agent-prompt. For a named agent this keeps the
-# launch flags per agent copied from omarchy-agent (Omarchy 4.0.4), so a picked
-# agent starts exactly as the default one would. When upstream gains
-# `omarchy-agent --agent`, that half goes away.
+# The agent starts in its ordinary mode and asks before acting. With
+# --auto-approve (the widget's `autoApprove` setting) it starts the way
+# Omarchy's own `omarchy agent` starts it, with approvals switched off; that
+# is your call, since the record it reads is untrusted.
+#
+# `default` resolves through `omarchy default agent`. The per-agent launch
+# flags are copied from omarchy-agent (Omarchy 4.0.4); when upstream gains
+# `omarchy-agent --agent`, this table goes away.
 set -euo pipefail
 
-usage="usage: crashdesk-agent <agent|default> <pid>"
+usage="usage: crashdesk-agent <agent|default> <pid> [--auto-approve]"
 agent=${1:?$usage}
 pid=${2:?$usage}
-(( $# == 2 )) || { echo "$usage" >&2; exit 1; }
+auto=0
+case $# in
+  2) ;;
+  3) [[ $3 == --auto-approve ]] || { echo "$usage" >&2; exit 1; }; auto=1 ;;
+  *) echo "$usage" >&2; exit 1 ;;
+esac
 [[ $pid =~ ^[0-9]+$ ]] || { echo "Not a PID: $pid" >&2; exit 1; }
 [[ $agent =~ ^[a-z][a-z0-9-]*$ ]] || { echo "Not an agent name: $agent" >&2; exit 1; }
+if [[ $agent == default ]]; then
+  agent=$(omarchy-default-agent 2>/dev/null || true)
+  [[ $agent =~ ^[a-z][a-z0-9-]*$ ]] || { echo "No default agent is set (omarchy default agent <name>)" >&2; exit 1; }
+fi
 
 if [[ $agent != default ]] && ! command -v "$agent" >/dev/null 2>&1 && [[ $agent != openclaw ]]; then
   echo "$agent is not installed" >&2
@@ -47,25 +60,43 @@ mechanism, read the skill files directly and follow them instead:
 PROMPT
 )
 
-[[ $agent == default ]] && exec omarchy-agent-prompt "$prompt"
-
 [[ $PWD == "$HOME" && -d $HOME/Work ]] && cd "$HOME/Work"
 
-case "$agent" in
-opencode)      command=(opencode --auto --prompt "$prompt") ;;
-gemini)        command=(gemini --yolo --prompt-interactive "$prompt") ;;
-copilot)       command=(copilot --allow-all --interactive "$prompt") ;;
-crush)         command=(crush run "$prompt") ;;
-claude)        command=(claude --permission-mode auto -- "$prompt") ;;
-grok)          command=(grok --permission-mode bypassPermissions -- "$prompt") ;;
-openclaw)      command=(omarchy-launch-openclaw --tui --message "$prompt") ;;
-codex)         command=(codex --approve-for-me -- "$prompt") ;;
-cursor-agent)  command=(cursor-agent --yolo --trust agent -- "$prompt") ;;
-hermes)        command=(env -u HERMES_SESSION_SOURCE hermes chat --yolo --tui "--query=$prompt") ;;
-muse)          command=(muse --approval-mode never -- "$prompt") ;;
-omp)           command=(omp --auto-approve -- "$prompt") ;;
-pi)            command=(pi "$prompt") ;;
-*) echo "Unsupported agent: $agent" >&2; exit 1 ;;
-esac
+# Two tables: how each agent takes a prompt, and what switches its approvals off.
+if (( auto )); then
+  case "$agent" in
+    opencode)      command=(opencode --auto --prompt "$prompt") ;;
+    gemini)        command=(gemini --yolo --prompt-interactive "$prompt") ;;
+    copilot)       command=(copilot --allow-all --interactive "$prompt") ;;
+    crush)         command=(crush run "$prompt") ;;
+    claude)        command=(claude --permission-mode auto -- "$prompt") ;;
+    grok)          command=(grok --permission-mode bypassPermissions -- "$prompt") ;;
+    openclaw)      command=(omarchy-launch-openclaw --tui --message "$prompt") ;;
+    codex)         command=(codex --approve-for-me -- "$prompt") ;;
+    cursor-agent)  command=(cursor-agent --yolo --trust agent -- "$prompt") ;;
+    hermes)        command=(env -u HERMES_SESSION_SOURCE hermes chat --yolo --tui "--query=$prompt") ;;
+    muse)          command=(muse --approval-mode never -- "$prompt") ;;
+    omp)           command=(omp --auto-approve -- "$prompt") ;;
+    pi)            command=(pi "$prompt") ;;
+    *) echo "Unsupported agent: $agent" >&2; exit 1 ;;
+  esac
+else
+  case "$agent" in
+    opencode)      command=(opencode --prompt "$prompt") ;;
+    gemini)        command=(gemini --prompt-interactive "$prompt") ;;
+    copilot)       command=(copilot --interactive "$prompt") ;;
+    crush)         command=(crush run "$prompt") ;;   # crush takes a prompt only this way; it asks before tools
+    claude)        command=(claude -- "$prompt") ;;
+    grok)          command=(grok -- "$prompt") ;;
+    openclaw)      command=(omarchy-launch-openclaw --tui --message "$prompt") ;;
+    codex)         command=(codex -- "$prompt") ;;
+    cursor-agent)  command=(cursor-agent agent -- "$prompt") ;;
+    hermes)        command=(env -u HERMES_SESSION_SOURCE hermes chat --tui "--query=$prompt") ;;
+    muse)          command=(muse -- "$prompt") ;;
+    omp)           command=(omp -- "$prompt") ;;
+    pi)            command=(pi "$prompt") ;;
+    *) echo "Unsupported agent: $agent" >&2; exit 1 ;;
+  esac
+fi
 
 exec omarchy-launch-tui --app-id=org.omarchy.agent "${command[@]}"

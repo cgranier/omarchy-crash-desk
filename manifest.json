@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cgranier.crashdesk",
   "name": "Crash Desk",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": "Carlos Granier",
   "license": "MIT",
   "description": "A history of what crashed on this machine, grouped by program, with one-key AI diagnosis. The crash toast tells you once; Crash Desk remembers.",
@@ -23,13 +23,15 @@
       "days": 14,
       "refreshIntervalSec": 60,
       "alwaysShow": false,
-      "allUsers": false
+      "allUsers": false,
+      "autoApprove": false
     },
     "schema": [
       { "key": "days", "type": "integer", "label": "History (days)", "min": 1, "max": 90, "step": 1, "defaultValue": 14 },
       { "key": "refreshIntervalSec", "type": "integer", "label": "Refresh interval (seconds)", "min": 15, "max": 3600, "step": 15, "defaultValue": 60 },
       { "key": "alwaysShow", "type": "boolean", "label": "Always show", "defaultValue": false, "description": "Keep the bar icon visible even when there is nothing new. Off, it only appears after a crash." },
-      { "key": "allUsers", "type": "boolean", "label": "Include other users", "defaultValue": false, "description": "Also list crashes of system daemons and other users, when you are allowed to read them." }
+      { "key": "allUsers", "type": "boolean", "label": "Include other users", "defaultValue": false, "description": "Also list crashes of system daemons and other users, when you are allowed to read them." },
+      { "key": "autoApprove", "type": "boolean", "label": "Start agents with approvals off", "defaultValue": false, "description": "Off: the agent asks before acting on the crash record, which is untrusted input. On: it starts the way omarchy agent starts it, with approvals switched off." }
     ]
   }
 }

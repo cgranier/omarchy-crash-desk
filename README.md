@@ -73,6 +73,7 @@ Crash Desk only reads systemd-coredump's history; removing it leaves your core d
 | `refreshIntervalSec` | `60` | Poll interval. |
 | `alwaysShow` | `false` | Keep the icon in the bar even with nothing new. |
 | `allUsers` | `false` | Include crashes from other users and system daemons, when readable. |
+| `autoApprove` | `false` | Start agents with approvals off, the way `omarchy agent` does. Off, the agent asks before acting; the crash record it reads is untrusted input, so that is the safer default. |
 
 The "seen" marker, the muted list and the chosen window live in `~/.local/state/omarchy-crashdesk/seen.json`.
 The shell never opens that file itself: `bin/crashdesk-state` does, after checking that every directory from your
