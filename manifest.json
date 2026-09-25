@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cgranier.crashdesk",
   "name": "Crash Desk",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": "Carlos Granier",
   "license": "MIT",
   "description": "A history of what crashed on this machine, grouped by program, with one-key AI diagnosis. The crash toast tells you once; Crash Desk remembers.",

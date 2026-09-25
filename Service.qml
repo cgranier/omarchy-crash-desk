@@ -76,8 +76,22 @@ Item {
     summary = Model.summaryText(groups, visible, windowDays(), mutedGroups.length)
   }
 
+  // The state file is never opened by the shell: bin/crashdesk-state checks
+  // the directory chain, refuses links, FIFOs and oversized files, and writes
+  // atomically. Writes are serialised; one made while another runs waits.
+  readonly property string stateScript: String(Qt.resolvedUrl("bin/crashdesk-state")).replace(/^file:\/\//, "")
+  property string pendingWrite: ""
+
   function saveState() {
-    stateFile.setText(Model.serializeState({ seenMs: seenMs, muted: muted, rangeDays: rangeDays }))
+    pendingWrite = Model.serializeState({ seenMs: seenMs, muted: muted, rangeDays: rangeDays })
+    if (!writeProcess.running) flushWrite()
+  }
+
+  function flushWrite() {
+    if (pendingWrite === "") return
+    writeProcess.command = ["timeout", "10", "/usr/bin/python3", stateScript, "write", stateDir + "/seen.json", pendingWrite]
+    pendingWrite = ""
+    writeProcess.running = true
   }
 
   // Everything up to the newest crash counts as looked at.
@@ -189,23 +203,29 @@ Item {
   }
 
   Process {
+    id: readProcess
     running: true
-    command: ["mkdir", "-p", root.stateDir]
-  }
-
-  FileView {
-    id: stateFile
-    path: root.stateDir + "/seen.json"
-    watchChanges: false
-    atomicWrites: true
-    printErrors: false
-    onLoaded: {
-      var state = Model.parseState(text())
+    command: ["timeout", "10", "/usr/bin/python3", root.stateScript, "read", root.stateDir + "/seen.json"]
+    stdout: StdioCollector { id: readOut; waitForEnd: true }
+    onExited: function(exitCode) {
+      // A refused or missing file means a fresh start; nothing is written
+      // over it until the person does something that changes state.
+      var state = Model.parseState(exitCode === 0 ? readOut.text : "{}")
       root.seenMs = state.seenMs
       root.muted = state.muted
       root.rangeDays = state.rangeDays
       root.recount()
       root.refresh()
+    }
+  }
+
+  Process {
+    id: writeProcess
+    running: false
+    command: []
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.say("Could not save Crash Desk's state")
+      root.flushWrite()
     }
   }
 

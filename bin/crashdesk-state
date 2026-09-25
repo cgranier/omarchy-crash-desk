@@ -1,0 +1,152 @@
+#!/usr/bin/python3
+"""Read or write the plugin's small state file, refusing anything odd.
+
+Usage: crashdesk-state read  <file>
+       crashdesk-state write <file> <json>
+
+The shell is a long-lived process that must not block, follow a planted
+link, or slurp a large file, so it never opens the state file itself. This
+helper does, with checks first:
+
+  - every directory from $HOME down to the state directory must be a real
+    directory owned by this user and not writable by group or others;
+  - the state directory is created 0700 if missing, never through a link;
+  - the file must be a regular file owned by this user, at most MAX_BYTES;
+    it is opened with O_NOFOLLOW|O_NONBLOCK and checked with fstat, so a
+    symlink or FIFO planted at the path is refused, not followed or waited on;
+  - writes go to a 0600 temp file in the same directory and are renamed over
+    the path, and only when the path is absent or a regular file we own.
+
+Exit 0 on success (read prints the content, or {} when there is no file yet),
+3 when a check failed, 1 on a usage error. Nothing is printed on stderr in
+the normal case.
+"""
+import os
+import stat
+import sys
+import tempfile
+
+MAX_BYTES = 64 * 1024
+
+
+def refuse(why):
+    print(f"crashdesk-state: {why}", file=sys.stderr)
+    sys.exit(3)
+
+
+def check_dir(path, uid):
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    if stat.S_ISLNK(st.st_mode):
+        refuse(f"{path} is a symlink")
+    if not stat.S_ISDIR(st.st_mode):
+        refuse(f"{path} is not a directory")
+    if st.st_uid != uid:
+        refuse(f"{path} is not owned by this user")
+    if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        refuse(f"{path} is writable by others")
+    return True
+
+
+def ensure_dir(directory):
+    uid = os.getuid()
+    home = os.path.realpath(os.path.expanduser("~"))
+    directory = os.path.abspath(directory)
+    if not directory.startswith(home + os.sep):
+        refuse(f"{directory} is outside the home directory")
+    # Walk from $HOME down, creating only the tail if it is missing.
+    parts = directory[len(home):].strip(os.sep).split(os.sep)
+    current = home
+    check_dir(current, uid) or refuse("home directory is missing")
+    for part in parts:
+        current = os.path.join(current, part)
+        if not check_dir(current, uid):
+            try:
+                os.mkdir(current, 0o700)
+            except FileExistsError:
+                pass
+            check_dir(current, uid) or refuse(f"could not create {current}")
+
+
+def open_regular(path, flags):
+    uid = os.getuid()
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            refuse(f"{path} is not a regular file")
+        if st.st_uid != uid:
+            refuse(f"{path} is not owned by this user")
+        if st.st_size > MAX_BYTES:
+            refuse(f"{path} is larger than {MAX_BYTES} bytes")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def read(path):
+    ensure_dir(os.path.dirname(path))
+    try:
+        fd = open_regular(path, os.O_RDONLY)
+    except FileNotFoundError:
+        sys.stdout.write("{}\n")
+        return 0
+    except OSError as error:
+        refuse(f"{path}: {error.strerror}")
+    with os.fdopen(fd, "rb") as handle:
+        data = handle.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        refuse(f"{path} grew past {MAX_BYTES} bytes")
+    sys.stdout.write(data.decode("utf-8", "replace"))
+    if not data.endswith(b"\n"):
+        sys.stdout.write("\n")
+    return 0
+
+
+def write(path, content):
+    if len(content.encode("utf-8")) > MAX_BYTES:
+        refuse("content larger than the state file limit")
+    directory = os.path.dirname(path)
+    ensure_dir(directory)
+    # Whatever sits at the path now must be ours and ordinary, or absent.
+    try:
+        fd = open_regular(path, os.O_RDONLY)
+        os.close(fd)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        refuse(f"{path}: {error.strerror}")
+    fd, tmp = tempfile.mkstemp(prefix=".seen.", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            if not content.endswith("\n"):
+                handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o600)
+        # rename() replaces the directory entry and never follows a link.
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return 0
+
+
+def main(argv):
+    if len(argv) == 3 and argv[1] == "read":
+        return read(os.path.abspath(argv[2]))
+    if len(argv) == 4 and argv[1] == "write":
+        return write(os.path.abspath(argv[2]), argv[3])
+    print("usage: crashdesk-state read <file> | write <file> <json>", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

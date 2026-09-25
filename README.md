@@ -75,6 +75,9 @@ Crash Desk only reads systemd-coredump's history; removing it leaves your core d
 | `allUsers` | `false` | Include crashes from other users and system daemons, when readable. |
 
 The "seen" marker, the muted list and the chosen window live in `~/.local/state/omarchy-crashdesk/seen.json`.
+The shell never opens that file itself: `bin/crashdesk-state` does, after checking that every directory from your
+home down is yours and not writable by others, that the file is a regular file you own and under 64 KB (a symlink or
+FIFO planted there is refused, not followed or waited on), and writes go to a temp file renamed into place.
 
 ## IPC
 
@@ -91,10 +94,12 @@ manifest.json   plugin declaration + settings schema
 Panel.qml       bar button + popup (entry point)
 Service.qml     coredumpctl polling, seen state, actions
 Model.js        pure logic: parsing, grouping, report text
-tests/          node tests + synthetic fixture
+bin/crashdesk-agent   the diagnosis brief, for the default agent or a named one
+bin/crashdesk-state   the only thing that opens seen.json (checked, bounded, atomic)
+tests/          node tests + synthetic fixture; agent.test.sh and state.test.sh drive the two scripts
 ```
 
-`node tests/model.test.js` · `omarchy plugin validate .`
+`node tests/model.test.js` · `bash tests/agent.test.sh` · `bash tests/state.test.sh` · `omarchy plugin validate .`
 
 ## License
 
