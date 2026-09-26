@@ -30,6 +30,12 @@ function baseName(exe) {
   return slash === -1 ? value : value.substring(slash + 1)
 }
 
+// Producer-side bounds on what the shell holds. coredumpctl is asked for the
+// newest LIST_MAX_ENTRIES, and head -c cuts each output before the collector.
+var LIST_MAX_ENTRIES = 500
+var LIST_CAP_BYTES = 2000000
+var INFO_CAP_BYTES = 262144
+
 // The first line of the helper's output is this user's uid; the rest is
 // coredumpctl's JSON (or its "No coredumps found" text, or nothing).
 function parseListing(raw) {
@@ -38,10 +44,14 @@ function parseListing(raw) {
   var uid = parseInt(newline === -1 ? text : text.substring(0, newline), 10)
   var body = newline === -1 ? "" : text.substring(newline + 1).trim()
   var entries = []
+  var ok = true
+  // A JSON array that does not parse was cut at the byte cap or is garbage:
+  // not an empty history, so the caller keeps the last good list.
   if (body.charAt(0) === "[") {
-    try { entries = JSON.parse(body) } catch (e) { entries = [] }
+    try { entries = JSON.parse(body) } catch (e) { entries = []; ok = false }
+    if (!Array.isArray(entries)) { entries = []; ok = false }
   }
-  return { uid: isFinite(uid) ? uid : -1, entries: entries }
+  return { uid: isFinite(uid) ? uid : -1, entries: entries.slice(0, LIST_MAX_ENTRIES), ok: ok }
 }
 
 // One record per crash, newest first. `time` from coredumpctl is microseconds.
@@ -299,6 +309,7 @@ if (typeof module !== "undefined" && module.exports) {
     reportText: reportText, parseSeen: parseSeen, serializeSeen: serializeSeen,
     RANGES: RANGES, rangeLabel: rangeLabel, nextRange: nextRange, parseState: parseState, serializeState: serializeState,
     splitMuted: splitMuted, topFrame: topFrame, crashMeta: crashMeta, buildRows: buildRows, cursorRows: cursorRows,
-    AGENTS: AGENTS, agentName: agentName
+    AGENTS: AGENTS, agentName: agentName,
+    LIST_MAX_ENTRIES: LIST_MAX_ENTRIES, LIST_CAP_BYTES: LIST_CAP_BYTES, INFO_CAP_BYTES: INFO_CAP_BYTES
   }
 }

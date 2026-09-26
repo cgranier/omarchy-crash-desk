@@ -24,6 +24,7 @@ Item {
   property string defaultAgent: ""
   property var installedAgents: []
   property bool loaded: false
+  property bool listUnreadable: false
   property string actionStatus: ""
 
   readonly property int days: intSetting("days", 14, 1, 90)
@@ -51,14 +52,26 @@ Item {
     // The uid rides along on the first line so crashes can be filtered to this
     // user. coredumpctl exits 1 with "No coredumps found" when the window is
     // empty, which is an answer, not a failure. "All time" passes no --since.
+    // Only the newest entries are asked for, and head -c caps the bytes before
+    // the collector; a list cut at the cap fails to parse and apply() keeps
+    // the last good one.
     var since = windowDays() > 0 ? "--since=-" + windowDays() + "days" : ""
-    listProcess.command = ["timeout", "15", "sh", "-c", 'id -u; coredumpctl list --json=short --no-pager $1 2>/dev/null; exit 0', "sh", since]
+    listProcess.command = ["timeout", "15", "sh", "-c",
+      'id -u; coredumpctl list --json=short --no-pager -r -n "$2" $1 2>/dev/null | head -c "$3"; exit 0',
+      "sh", since, String(Model.LIST_MAX_ENTRIES), String(Model.LIST_CAP_BYTES)]
     listProcess.running = true
     if (!agentProcess.running) agentProcess.running = true
   }
 
   function apply(raw) {
     var parsed = Model.parseListing(raw)
+    if (!parsed.ok) {
+      if (!listUnreadable) say("Crash list too large to read; showing the last one that was")
+      listUnreadable = true
+      loaded = true
+      return
+    }
+    listUnreadable = false
     crashes = Model.crashesFrom(parsed.entries, parsed.uid, allUsers)
     recount()
     loaded = true
@@ -146,9 +159,11 @@ Item {
     frameQueue = frameQueue.slice(1)
     infoProcess.pid = pid
     // c++filt (binutils) turns _ZSt21__glibcxx_assert_fail… into a name a
-    // person can read; without it the mangled name is shown as is.
+    // person can read; without it the mangled name is shown as is. The frame
+    // sits near the top, so a record cut at the byte cap still yields one.
     infoProcess.command = ["timeout", "10", "sh", "-c",
-      'coredumpctl info "$1" --no-pager 2>/dev/null | { command -v c++filt >/dev/null 2>&1 && c++filt || cat; }', "sh", String(pid)]
+      'coredumpctl info "$1" --no-pager 2>/dev/null | { command -v c++filt >/dev/null 2>&1 && c++filt || cat; } | head -c "$2"',
+      "sh", String(pid), String(Model.INFO_CAP_BYTES)]
     infoProcess.running = true
   }
 
@@ -258,7 +273,7 @@ Item {
   Process {
     id: agentProcess
     running: false
-    command: ["timeout", "10", "sh", "-c", 'omarchy-default-agent 2>/dev/null; echo; for a in "$@"; do command -v "$a" >/dev/null 2>&1 && echo "$a"; done; exit 0', "sh",
+    command: ["timeout", "10", "sh", "-c", '{ omarchy-default-agent 2>/dev/null; echo; for a in "$@"; do command -v "$a" >/dev/null 2>&1 && echo "$a"; done; } | head -c 4096; exit 0', "sh",
       "claude", "codex", "grok", "gemini", "opencode", "copilot", "cursor-agent", "crush", "muse", "hermes", "pi", "omp"]
     stdout: StdioCollector { id: agentStdout; waitForEnd: true }
     onExited: function(exitCode) {

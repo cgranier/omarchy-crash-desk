@@ -12,10 +12,25 @@ test("parseListing splits uid from JSON and survives junk", () => {
   const parsed = M.parseListing(raw)
   assert.strictEqual(parsed.uid, 1000)
   assert.strictEqual(parsed.entries.length, 6)
-  assert.deepStrictEqual(M.parseListing("1000\nNo coredumps found.\n"), { uid: 1000, entries: [] })
-  assert.deepStrictEqual(M.parseListing("1000"), { uid: 1000, entries: [] })
-  assert.deepStrictEqual(M.parseListing("1000\n[{broken"), { uid: 1000, entries: [] })
-  assert.deepStrictEqual(M.parseListing(""), { uid: -1, entries: [] })
+  assert.strictEqual(parsed.ok, true)
+  assert.deepStrictEqual(M.parseListing("1000\nNo coredumps found.\n"), { uid: 1000, entries: [], ok: true })
+  assert.deepStrictEqual(M.parseListing("1000"), { uid: 1000, entries: [], ok: true })
+  assert.deepStrictEqual(M.parseListing(""), { uid: -1, entries: [], ok: true })
+})
+
+test("a list cut at the byte cap is reported unreadable, not empty", () => {
+  const cut = raw.substring(0, raw.lastIndexOf("}") - 3)
+  assert.deepStrictEqual(M.parseListing(cut), { uid: 1000, entries: [], ok: false })
+  assert.deepStrictEqual(M.parseListing("1000\n[{broken"), { uid: 1000, entries: [], ok: false })
+  assert.deepStrictEqual(M.parseListing("1000\n[1"), { uid: 1000, entries: [], ok: false })
+})
+
+test("parseListing keeps at most LIST_MAX_ENTRIES records", () => {
+  const many = []
+  for (let i = 0; i < M.LIST_MAX_ENTRIES + 50; i++) many.push({ pid: i, uid: 1000, exe: "/usr/bin/x", sig: 11, time: i })
+  const parsed = M.parseListing("1000\n" + JSON.stringify(many))
+  assert.strictEqual(parsed.ok, true)
+  assert.strictEqual(parsed.entries.length, M.LIST_MAX_ENTRIES)
 })
 
 const parsed = M.parseListing(raw)

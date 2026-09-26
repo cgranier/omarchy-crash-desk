@@ -80,6 +80,11 @@ The shell never opens that file itself: `bin/crashdesk-state` does, after checki
 home down is yours and not writable by others, that the file is a regular file you own and under 64 KB (a symlink or
 FIFO planted there is refused, not followed or waited on), and writes go to a temp file renamed into place.
 
+What the shell holds is bounded too. Crash Desk asks `coredumpctl` for the newest 500 crashes only, and cuts every
+command's output before reading it: 2 MB for the list, 256 KB for each crash record it reads the "where it died" frame
+from. A list cut at that limit is reported as unreadable and the last good one stays on screen, rather than being
+read as "no crashes".
+
 ## IPC
 
 ```bash
@@ -97,7 +102,8 @@ Service.qml     coredumpctl polling, seen state, actions
 Model.js        pure logic: parsing, grouping, report text
 bin/crashdesk-agent   the diagnosis brief, for the default agent or a named one
 bin/crashdesk-state   the only thing that opens seen.json (checked, bounded, atomic)
-tests/          node tests + synthetic fixture; agent.test.sh and state.test.sh drive the two scripts
+tests/          node tests + synthetic fixture; agent.test.sh and state.test.sh drive the two scripts;
+                bounds.test.sh floods a stub coredumpctl through Service.qml's own pipelines
 ```
 
 `node tests/model.test.js` · `bash tests/agent.test.sh` · `bash tests/state.test.sh` · `omarchy plugin validate .`
