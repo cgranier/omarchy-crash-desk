@@ -102,8 +102,10 @@ Item {
 
   function flushWrite() {
     if (pendingWrite === "") return
-    writeProcess.command = ["timeout", "10", "/usr/bin/python3", stateScript, "write", stateDir + "/seen.json", pendingWrite]
+    writeProcess.payload = pendingWrite
     pendingWrite = ""
+    writeProcess.command = ["timeout", "10", "/usr/bin/python3", stateScript, "write", stateDir + "/seen.json"]
+    writeProcess.stdinEnabled = true
     writeProcess.running = true
   }
 
@@ -196,10 +198,18 @@ Item {
       'coredumpctl info "$1" --no-pager 2>&1 | less -R', "bash", pid])
   }
 
+  function copyText(text) {
+    if (copyProcess.running) return false
+    copyProcess.payload = String(text)
+    copyProcess.stdinEnabled = true
+    copyProcess.running = true
+    return true
+  }
+
   function copyReport(group) {
     if (!group) return
-    Quickshell.execDetached(["wl-copy", Model.reportText(group, Date.now(), frameFor(Model.diagnosisTarget(group)))])
-    say("Copied " + group.name + " report")
+    if (copyText(Model.reportText(group, Date.now(), frameFor(Model.diagnosisTarget(group)))))
+      say("Copied " + group.name + " report")
   }
 
   onSettingsChanged: refresh()
@@ -238,12 +248,27 @@ Item {
 
   Process {
     id: writeProcess
+    // The state goes over stdin, never as an argument (see copyProcess).
+    property string payload: ""
     running: false
     command: []
+    stdinEnabled: true
+    onStarted: { write(payload); payload = ""; stdinEnabled = false }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.say("Could not save Crash Desk's state")
       root.flushWrite()
     }
+  }
+
+  // Clipboard text goes to wl-copy over stdin, never as an argument: other
+  // local users can read a running process's arguments in /proc.
+  Process {
+    id: copyProcess
+    property string payload: ""
+    running: false
+    command: ["timeout", "10", "wl-copy"]
+    stdinEnabled: true
+    onStarted: { write(payload); payload = ""; stdinEnabled = false }
   }
 
   Process {

@@ -76,9 +76,14 @@ Crash Desk only reads systemd-coredump's history; removing it leaves your core d
 | `autoApprove` | `false` | Start agents with approvals off, the way `omarchy agent` does. Off, the agent asks before acting; the crash record it reads is untrusted input, so that is the safer default. |
 
 The "seen" marker, the muted list and the chosen window live in `~/.local/state/omarchy-crashdesk/seen.json`.
-The shell never opens that file itself: `bin/crashdesk-state` does, after checking that every directory from your
-home down is yours and not writable by others, that the file is a regular file you own and under 64 KB (a symlink or
-FIFO planted there is refused, not followed or waited on), and writes go to a temp file renamed into place.
+The shell never opens that file itself: `bin/crashdesk-state` does. It opens your home and each directory below it one at
+a time, relative to the one above and without following links, and checks each one is yours and not writable by
+others; the file is then opened and replaced relative to the directory it holds open, so nothing is looked up by path
+again after it was checked. The file must be a regular file you own and under 64 KB (a symlink or FIFO planted there
+is refused, not followed or waited on), and a write goes to a new private temp file renamed into place.
+
+Nothing Crash Desk hands to another program travels in its arguments, which any local user can read in `/proc`: the
+state goes to `crashdesk-state` and a copied report to `wl-copy` over stdin.
 
 What the shell holds is bounded too. Crash Desk asks `coredumpctl` for the newest 500 crashes only, and cuts every
 command's output before reading it: 2 MB for the list, 256 KB for each crash record it reads the "where it died" frame

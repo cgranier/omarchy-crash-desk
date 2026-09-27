@@ -2,85 +2,110 @@
 """Read or write the plugin's small state file, refusing anything odd.
 
 Usage: crashdesk-state read  <file>
-       crashdesk-state write <file> <json>
+       crashdesk-state write <file>          (the new content arrives on stdin)
 
 The shell is a long-lived process that must not block, follow a planted
 link, or slurp a large file, so it never opens the state file itself. This
-helper does, with checks first:
+helper does, and it works on open directories, not on path names:
 
-  - every directory from $HOME down to the state directory must be a real
-    directory owned by this user and not writable by group or others;
-  - the state directory is created 0700 if missing, never through a link;
-  - the file must be a regular file owned by this user, at most MAX_BYTES;
-    it is opened with O_NOFOLLOW|O_NONBLOCK and checked with fstat, so a
-    symlink or FIFO planted at the path is refused, not followed or waited on;
-  - writes go to a 0600 temp file in the same directory and are renamed over
-    the path, and only when the path is absent or a regular file we own.
+  - it opens $HOME, then each directory below it down to the state
+    directory, one component at a time relative to the one above, with
+    O_NOFOLLOW|O_DIRECTORY, and checks every opened directory with fstat:
+    owned by this user and not writable by group or others. A component
+    that is missing is created 0700 relative to its parent and then opened
+    the same way. Swapping a directory after it was checked cannot redirect
+    anything, because nothing below it is looked up by path again;
+  - the file is opened relative to the state directory's descriptor with
+    O_NOFOLLOW|O_NONBLOCK and checked with fstat: a regular file owned by
+    this user, at most MAX_BYTES. A symlink or FIFO planted there is refused,
+    not followed or waited on;
+  - a write takes its content from stdin (never argv, which other local
+    users can read in /proc), creates an unpredictable temp file with
+    O_CREAT|O_EXCL|O_NOFOLLOW, mode 0600, relative to the same descriptor,
+    and renames it over the file relative to that descriptor, only when the
+    file is absent or a regular file this user owns.
 
 Exit 0 on success (read prints the content, or {} when there is no file yet),
 3 when a check failed, 1 on a usage error. Nothing is printed on stderr in
 the normal case.
 """
 import os
+import secrets
 import stat
 import sys
-import tempfile
 
+NAME = "crashdesk-state"
+TMP_PREFIX = ".seen."
 MAX_BYTES = 64 * 1024
+DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 def refuse(why):
-    print(f"crashdesk-state: {why}", file=sys.stderr)
+    print(f"{NAME}: {why}", file=sys.stderr)
     sys.exit(3)
 
 
-def check_dir(path, uid):
-    try:
-        st = os.lstat(path)
-    except FileNotFoundError:
-        return False
-    if stat.S_ISLNK(st.st_mode):
-        refuse(f"{path} is a symlink")
+def check_open_dir(fd, label, uid):
+    st = os.fstat(fd)
     if not stat.S_ISDIR(st.st_mode):
-        refuse(f"{path} is not a directory")
+        refuse(f"{label} is not a directory")
     if st.st_uid != uid:
-        refuse(f"{path} is not owned by this user")
+        refuse(f"{label} is not owned by this user")
     if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-        refuse(f"{path} is writable by others")
-    return True
+        refuse(f"{label} is writable by others")
 
 
-def ensure_dir(directory):
+def open_state_dir(directory):
+    """An open, checked descriptor for `directory`, reached from $HOME."""
     uid = os.getuid()
     home = os.path.realpath(os.path.expanduser("~"))
     directory = os.path.abspath(directory)
     if not directory.startswith(home + os.sep):
         refuse(f"{directory} is outside the home directory")
-    # Walk from $HOME down, creating only the tail if it is missing.
-    parts = directory[len(home):].strip(os.sep).split(os.sep)
-    current = home
-    check_dir(current, uid) or refuse("home directory is missing")
-    for part in parts:
-        current = os.path.join(current, part)
-        if not check_dir(current, uid):
+    try:
+        fd = os.open(home, DIR_FLAGS)
+    except OSError as error:
+        refuse(f"home directory: {error.strerror}")
+    label = home
+    try:
+        check_open_dir(fd, label, uid)
+        for part in directory[len(home):].strip(os.sep).split(os.sep):
+            if part in ("", ".", ".."):
+                refuse(f"{directory} is not a plain path")
+            label = os.path.join(label, part)
             try:
-                os.mkdir(current, 0o700)
-            except FileExistsError:
-                pass
-            check_dir(current, uid) or refuse(f"could not create {current}")
+                child = os.open(part, DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                try:
+                    child = os.open(part, DIR_FLAGS, dir_fd=fd)
+                except OSError as error:
+                    refuse(f"{label}: {error.strerror}")
+            except OSError as error:
+                # ELOOP: a symlink; ENOTDIR: something else sits there.
+                refuse(f"{label}: {error.strerror}")
+            os.close(fd)
+            fd = child
+            check_open_dir(fd, label, uid)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
-def open_regular(path, flags):
-    uid = os.getuid()
-    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+def open_regular(name, flags, dir_fd):
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dir_fd)
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
-            refuse(f"{path} is not a regular file")
-        if st.st_uid != uid:
-            refuse(f"{path} is not owned by this user")
+            refuse(f"{name} is not a regular file")
+        if st.st_uid != os.getuid():
+            refuse(f"{name} is not owned by this user")
         if st.st_size > MAX_BYTES:
-            refuse(f"{path} is larger than {MAX_BYTES} bytes")
+            refuse(f"{name} is larger than {MAX_BYTES} bytes")
     except BaseException:
         os.close(fd)
         raise
@@ -88,16 +113,20 @@ def open_regular(path, flags):
 
 
 def read(path):
-    ensure_dir(os.path.dirname(path))
+    dir_fd = open_state_dir(os.path.dirname(path))
+    name = os.path.basename(path)
     try:
-        fd = open_regular(path, os.O_RDONLY)
-    except FileNotFoundError:
-        sys.stdout.write("{}\n")
-        return 0
-    except OSError as error:
-        refuse(f"{path}: {error.strerror}")
-    with os.fdopen(fd, "rb") as handle:
-        data = handle.read(MAX_BYTES + 1)
+        try:
+            fd = open_regular(name, os.O_RDONLY, dir_fd)
+        except FileNotFoundError:
+            sys.stdout.write("{}\n")
+            return 0
+        except OSError as error:
+            refuse(f"{path}: {error.strerror}")
+        with os.fdopen(fd, "rb") as handle:
+            data = handle.read(MAX_BYTES + 1)
+    finally:
+        os.close(dir_fd)
     if len(data) > MAX_BYTES:
         refuse(f"{path} grew past {MAX_BYTES} bytes")
     sys.stdout.write(data.decode("utf-8", "replace"))
@@ -106,45 +135,49 @@ def read(path):
     return 0
 
 
-def write(path, content):
-    if len(content.encode("utf-8")) > MAX_BYTES:
+def write(path):
+    content = sys.stdin.buffer.read(MAX_BYTES + 1)
+    if len(content) > MAX_BYTES:
         refuse("content larger than the state file limit")
-    directory = os.path.dirname(path)
-    ensure_dir(directory)
-    # Whatever sits at the path now must be ours and ordinary, or absent.
+    if not content.endswith(b"\n"):
+        content += b"\n"
+    dir_fd = open_state_dir(os.path.dirname(path))
+    name = os.path.basename(path)
     try:
-        fd = open_regular(path, os.O_RDONLY)
-        os.close(fd)
-    except FileNotFoundError:
-        pass
-    except OSError as error:
-        refuse(f"{path}: {error.strerror}")
-    fd, tmp = tempfile.mkstemp(prefix=".seen.", suffix=".tmp", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            if not content.endswith("\n"):
-                handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp, 0o600)
-        # rename() replaces the directory entry and never follows a link.
-        os.replace(tmp, path)
-    except BaseException:
+        # Whatever sits at the name now must be ours and ordinary, or absent.
         try:
-            os.unlink(tmp)
-        except OSError:
+            os.close(open_regular(name, os.O_RDONLY, dir_fd))
+        except FileNotFoundError:
             pass
-        raise
+        except OSError as error:
+            refuse(f"{path}: {error.strerror}")
+        tmp = f"{TMP_PREFIX}{secrets.token_hex(8)}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=dir_fd)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Both names resolve in the directory we hold, not by path.
+            os.replace(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+            os.fsync(dir_fd)
+        except BaseException:
+            try:
+                os.unlink(tmp, dir_fd=dir_fd)
+            except OSError:
+                pass
+            raise
+    finally:
+        os.close(dir_fd)
     return 0
 
 
 def main(argv):
     if len(argv) == 3 and argv[1] == "read":
         return read(os.path.abspath(argv[2]))
-    if len(argv) == 4 and argv[1] == "write":
-        return write(os.path.abspath(argv[2]), argv[3])
-    print("usage: crashdesk-state read <file> | write <file> <json>", file=sys.stderr)
+    if len(argv) == 3 and argv[1] == "write":
+        return write(os.path.abspath(argv[2]))
+    print(f"usage: {NAME} read <file> | write <file>  (content on stdin)", file=sys.stderr)
     return 1
 
 
